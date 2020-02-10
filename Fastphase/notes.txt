@@ -1,0 +1,22 @@
+1.Transfer to plink file
+
+I used the command $vcftools --gzvcf $1 --plink --out $plink/$Out_plink to transfer the filtered vcf files for both tremula and tremuloides to plink files.
+
+Because the map file produced with chromosome number 0, then I replaced the 0 by all chromosome numbers.
+
+cut -f 2 SwAsp.trichocarpa.gatk.hap.snp.rm_indel.bed.biallelic.GQ10.rm_miss_1.hwe.plink.map | cut -d":" -f 1 | sed 's/Chr0//g' | sed 's/Chr//g' > chrom 
+cut -f 2,3,4 SwAsp.trichocarpa.gatk.hap.snp.rm_indel.bed.biallelic.GQ10.rm_miss_1.hwe.plink.map > map
+paste chrom map > SwAsp.trichocarpa.gatk.hap.snp.rm_indel.bed.biallelic.GQ10.rm_miss_1.hwe.plink.map
+2. Input file of fastPHASE
+
+Two methods can be used to transfer ped file into the input file of fastPHASE
+
+(1) use fcgene tools
+
+/proj/b2011141/tools/fcgene-1.0.7/fcgene --ped $ped --map $map --oformat phase --out $OutDir/$phase
+
+(2) use PLINK
+
+$plink --ped $ped --map $map --out $fastphase/$Out --recode-fastphase
+
+The difference between these two methods is that the first one produce ATCG format and the second one produce 0/1 format
