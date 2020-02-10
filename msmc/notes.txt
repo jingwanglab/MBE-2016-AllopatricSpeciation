@@ -1,0 +1,388 @@
+Here, I want to use the latest software msmc to infer the population size changes during the evolutionary history of P.tremula and P.tremuloides
+
+1. SNP data
+
+Here, I will use all the SNP data called by GATK HaplotypeCaller. Then, I transfer the vcf file into plink file, which is located in /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/plink.
+
+Then, I removed all the fixed loci of P.tremula and P.tremuloides from P.trichocarpa by $plink --ped $ped --map $map --out $rm_fixed/$Out --maf 0.001 --recode, the relative plink files are located in /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/plink/rm_fixed
+
+Third, I divided the original plink files by different chromosomes by $plink --ped $ped --map $map --chr $file  --out $OutDir/$Out.$file --recode
+
+2. Input fastPHASE file
+
+Because fastPHASE can only read line with maximum 500,000 characters, thus, except for chromosome 17 and 19, for all other chromosomes, the files should be divided. Here, for each subset file, I made them containing 100,000 SNPs. I used the following script to divided the map files into several different part.
+
+map=$1
+
+OutDir=`dirname $1`
+Out=${1##*ped.}
+chr=${Out%%.map}
+echo $chr
+
+
+line=$(cat $map | wc -l)
+echo $line
+n=$(echo "$line/100000" | bc)
+echo $n
+final_n=$(echo "$n+1" | bc)
+echo $final_n
+
+for ((i=1;i<=$final_n;i++))
+do
+if [ $i -lt $n ] || [ $i -eq $n ]
+then
+head -n $i"00000" $map |tail -n 100000 | cut -f 2 > $OutDir/chr$chr.$i.snp
+else
+last_n=$(echo "$line-$n"00000"" | bc)
+echo $last_n
+head -n $line $map | tail -n $last_n | cut -f 2 > $OutDir/chr$chr.$i.snp
+fi
+done
+Then, I used the following plink script to extract the relative SNPs
+
+plink="/proj/b2011141/tools/plink_1.9/plink"
+ped=$1
+map=$2
+
+OutDir=`dirname $1`
+Out=${1##*/}
+OutSuffix=${Out%.ped}
+
+for file in $OutDir/chr*snp
+do
+input=${file##*/}
+n=${input%.*}
+number=${n##*.}
+$plink --ped $ped --map $map --extract $file --out $OutDir/$OutSuffix.$number --recode
+done
+Third, make the fastPHASE file using the following commands
+
+fcgene="/proj/b2011141/tools/fcgene-1.0.7/fcgene"
+ped=$1
+map=$2
+
+OutDir=`dirname $1`
+Out=${1##*/}
+OutSuffix=${Out%.ped}
+
+fastphase=$OutDir/fastphase
+
+if [ ! -d "$fastphase" ]; then
+mkdir -p $fastphase
+fi
+
+$fcgene --ped $ped --map $map --oformat phase --out $fastphase/$OutSuffix
+3. fastPHASE phasing
+
+I used fastPHASE to do phasing for all .inp files
+
+module load bioinfo-tools
+module load fastPHASE
+
+inp=$1
+
+OutDir=`dirname $1`
+Out=${1##*/}
+
+phase=$OutDir/phasing
+
+if [ ! -d "$phase" ]; then
+mkdir -p $phase
+fi
+
+Input=${Out%.inp}
+
+fastPHASE -o$phase/$Input -Ku12 -Kl2 -Ki2 $inp
+
+4. Manipulating output of fastPHASE file
+
+1. Extracting the haplotypes for each individuals and transpose from rows to columns
+
+For P.tremula, I used the following script (which will be a little different for tremuloides because of the different individuals in each species)
+
+transpose="/proj/b2011141/pipeline/fastphase/transpose.awk"
+switch_out=$1
+
+OutDir=`dirname $1`
+Out=${1##*/}
+OutSuffix=${Out%._hapguess_switch.out}.hap
+
+hap=$OutDir/hap
+
+if [ ! -d "$hap" ]; then
+mkdir -p $hap
+fi
+
+head -n 93 $switch_out | tail -n 72 | sed -n -e 2,3p -e 5,6p -e 8,9p -e 11,12p -e 14,15p -e 17,18p -e 20,21p -e 23,24p -e 26,27p -e 29,30p -e 32,33p -e 35,36p -e 38,39p -e 41,42p -e 44,45p -e 47,48p -e 50,51p -e 53,54p -e 56,57p -e 59,60p -e 62,63p -e 65,66p -e 68,69p -e 71,72p -e 74,75p > $OutDir/$OutSuffix
+
+$transpose $OutDir/$OutSuffix > $OutDir/$OutSuffix.temp && mv $OutDir/$OutSuffix.temp $OutDir/$OutSuffix
+
+For P.tremuloides
+
+transpose="/proj/b2011141/pipeline/fastphase/transpose.awk"
+switch_out=$1
+
+OutDir=`dirname $1`
+Out=${1##*/}
+OutSuffix=${Out%._hapguess_switch.out}.hap
+
+hap=$OutDir/hap
+
+if [ ! -d "$hap" ]; then
+mkdir -p $hap
+fi
+
+head -n 87 $switch_out | tail -n 66 | sed -n -e 2,3p -e 5,6p -e 8,9p -e 11,12p -e 14,15p -e 17,18p -e 20,21p -e 23,24p -e 26,27p -e 29,30p -e 32,33p -e 35,36p -e 38,39p -e 41,42p -e 44,45p -e 47,48p -e 50,51p -e 53,54p -e 56,57p -e 59,60p -e 62,63p -e 65,66p -e 68,69p  > $hap/$OutSuffix
+
+$transpose $hap/$OutSuffix > $hap/$OutSuffix.temp && mv $hap/$OutSuffix.temp $hap/$OutSuffix
+
+Where, the transpose script is :
+
+#!/usr/bin/gawk -f
+
+BEGIN {
+    max_x =0;
+    max_y =0;
+}
+
+{
+    max_y++;
+    for( i=1; i<=NF; i++ )
+    {
+        if (i>max_x) max_x=i;
+        A[i,max_y] = $i;
+    }
+}
+
+END {
+    for ( x=1; x<=max_x; x++ )
+    {
+        for ( y=1; y<=max_y; y++ )
+        {
+            if ( (x,y) in A ) printf "%s",A[x,y];
+            if ( y!=max_y ) printf " ";
+        }
+        printf "\n";
+    }
+}
+The output files are looking like this:
+
+T T C C C C C C C T C C C C T C T C T C C C C C C C C C C C C C C C C C T T T T C C C T T C C C
+G G G G G G G G G G G G G T G G G G G G G G G G G G G G G G G G G T G G G G G G G G G G G G G G
+A A A A A A A A A A A A T A A T A A A T A A A A T T A T T T T A A A A A A A A A A T A A A T A T
+G G A A A A A A A G A A A A G A A A G A A A A A A A A A A A A A A A A A G G G G A A A G G A A A
+A A A A A A A A A A A A A A A A A A A A A A A G A A A A A A A A A A A A A A A A A A A A A A A A
+G G G G G T G T G G G T G G G G G G G G G G G G G G G G G G G G G G G G G G G G G G T G G G G G
+A A A A A A A A A A A A A A A A A A A A A A A A A G A A A A A A A A A A A A A A A A A A A A A A
+A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A G A A A A A
+G G G G G A G A G G G A G G G G G G G G G G G G G G G G G G G G G G G G G G G G G G A G G G G G
+T T T T T T T T T T T T A T T A T T T A T T T T A T T A A A A T T T T T T T T T T A T T T A T A
+G G G G G G G G G G G G G C G G G G G G G G G G G G G G G G G G G C G G G G G G G G G G G G G G
+C C C C C C C C C C C C C C C C C A C C C C C C C C C C C C C C C C C C C C C C C C C C C C C C
+C C C C C C C C C C C C G C C G C C C G C C C C G C C G G G G C C C C C C C C C C G C C C G C G
+For Chr1, the files are located in /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/plink/rm_fixed/Chr1/fastphase/phasing.
+
+First, for 8 haplotypes, we remove the files to /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_8haplotypes
+
+For 4 haplotypes, the folder is /msmc_4haplotypes
+For 2 haplotypes, the folder is /msmc_2haplotypes
+
+All the original fastphase haplotype file are located in "/proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/plink/rm_fixed/fastphase" for P.tremula
+
+2. Extracting the haplotypes for 8 haplotypes
+
+(1) Extract the SNPs that occur for four individuals, 8 haplotypes (SwAsp001, SwAsp009, SwAsp111,SwAsp114). First, generate the relative vcf files, which will be used lated by bedtools
+
+vcftools="/proj/b2011141/tools/vcftools/bin/vcftools"
+
+Inputvcf=$1
+VCFDir=`dirname $1`
+Out=${Inputvcf##*/}
+
+chr=$2
+
+OutDir="/proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_8haplotypes/$chr/vcf"
+
+if [ ! -d "$OutDir" ]; then
+mkdir -p $OutDir
+fi
+
+Out_ind=${Out%.recode.vcf.gz}.$chr
+
+$vcftools --gzvcf $Inputvcf --indv SwAsp001 --indv SwAsp009 --indv SwAsp111 --indv SwAsp114 --chr $chr --maf 0.001 --recode --recode-INFO-all --out $OutDir/$Out_ind
+(2) Then, I used BEDTools to extract the bed files which will be used later for producing the input file of msmc
+
+for file in {01..19}; do bedtools subtract -a /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/bed/all/Chr/chr/all.filter.Chr$file.bed -b /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_8haplotypes/Chr$file/vcf/SwAsp.trichocarpa.gatk.hap.snp.rm_indel.bed.biallelic.GQ10.rm_miss_1.hwe.Chr$file.recode.vcf > /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_8haplotypes/Chr$file/vcf/tremula_8hap.msmc.Chr$file.bed; done
+(3) Extract SNPs by plink with the .ped and .map files
+
+plink="/proj/b2011141/tools/plink_1.9/plink"
+ped=$1
+map=$2
+ind="/proj/b2011141/pipeline/plink/tremula_tremuloides/ind_tremula_8hap.txt"
+
+OutDir=`dirname $1`
+Out=${1##*/}
+
+$plink --ped $ped --map $map --keep $ind --maf 0.001 --out $OutDir/tremula_8hap.$3 --recode
+(4) Extract haplotypes for relative individuals
+
+First, transpose the blank into tab in .hap file
+
+for file in {1..9}; do sed 's/ /\t/g' /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_8haplotypes/Chr0$file/Chr$file.fastphase.hap > /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_8haplotypes/Chr0$file/temp && mv /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_8haplotypes/Chr0$file/temp /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_8haplotypes/Chr0$file/Chr$file.fastphase.hap; done
+Then, paste original map file and hap file, which will be used later by a perl script
+
+for file in {1..9}; do paste /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_8haplotypes/Chr0$file/SwAsp.trichocarpa.gatk.hap.snp.rm_indel.bed.biallelic.GQ10.rm_miss_1.hwe.plink.ped.ped.$file.map /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_8haplotypes/Chr0$file/Chr$file.fastphase.hap > /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_8haplotypes/Chr0$file/temp && mv /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_8haplotypes/Chr0$file/temp /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_8haplotypes/Chr0$file/Chr$file.fastphase.hap; done
+Last, extract the hap file with 8 haplotypes using the following perl script
+
+#! usr/bin/perl
+
+use strict;
+use File::Basename;
+
+my $hap=basename($ARGV[0],"\.hap");
+my $dirname=dirname($ARGV[0]);
+my $msmc_hap=$hap.".msmc.hap";
+my $Output=join "/", ($dirname,$msmc_hap);
+
+
+open HAP, "<", $ARGV[0] or die "cannot open the HAP file: $!";
+open MAP, "<", $ARGV[1] or die "cannot open the MAP file: $!";
+open OUT, ">", $Output or die "cannot produce the OUT file: $!";
+
+my %hap;
+
+while() {
+    chomp;
+        my @map=split(/\t/,$_);
+        $hap{$map[1]}=join"\t",($map[0],$map[3]);
+}
+
+
+while() {
+    chomp;
+    my @line=split(/\t/,$_);
+        my $snp=join"\t",($line[0],$line[3]);
+        my $snp_hap=join"",($line[4],$line[5],$line[6],$line[7],$line[48],$line[49],$line[50],$line[51]);
+        if (defined $hap{$line[1]}) {
+        print OUT "$snp\t$snp_hap\n";
+    }
+        else{next;}
+}
+(5) Extract information for the third column of the input file, which is the number of called sites (homozygous, except the site itself which can be hom. or het.) since the last segregating site.
+
+First, I used the following perl script to extract the information:
+
+#! usr/bin/perl -w
+
+use strict;
+use File::Basename;
+
+my $hap=basename($ARGV[0],"\.bed");
+my $dirname=dirname($ARGV[0]);
+my $msmc_hap=$hap.".called.sites";
+my $Output=join "/", ($dirname,$msmc_hap);
+
+open BED, "<", $ARGV[0] or die "cannot open the BED file: $!";
+open HAP, "<", $ARGV[1] or die "cannot open the HAP file: $!";
+open OUT, ">", $Output or die "cannot produce the OUT file: $!";
+
+my %hap;
+
+while() {
+    chomp;
+        my @map=split(/\t/,$_);
+        $hap{$map[1]}=1;
+}
+
+my $start=0;
+my $end=1;
+my $line1=0;
+my $line2=483;
+
+while() {
+    chomp;
+    my @line=split(/\t/,$_);
+
+    if (($line[1]>($line2+1)) && (defined $hap{$line[1]})) {
+                $hap{$line[1]}=$end-$start;
+        $start=0;
+        $end=1
+        }
+
+    if (defined $hap{($line[2]+1)}) {
+                $hap{($line[2]+1)}=($line[2]+$end-$line[1]-$start);
+                $start=0;
+                $end=1;
+        }
+    else{
+                $start=$start+$line[1];
+                $end=$end+$line[2];
+        }
+
+
+    $line1=$line[1];
+    $line2=$line[2];
+
+}
+
+foreach (sort {$a<=>$b} keys %hap){
+    print OUT "$hap{$_}\n";
+    }
+
+Because there is little cases that could not be taken count of, so I used the following script to modify it
+
+#! usr/bin/perl -w
+
+use strict;
+use File::Basename;
+
+my $hap=basename($ARGV[0],"\.input");
+my $dirname=dirname($ARGV[0]);
+my $msmc_hap=$hap.".modify.input";
+my $Output=join "/", ($dirname,$msmc_hap);
+
+open INPUT, "<", $ARGV[0] or die "cannot open the BED file: $!";
+open OUT, ">", $Output or die "cannot produce the OUT file: $!";
+
+my %site;
+my $line1=0;
+
+while() {
+    chomp;
+        my @line=split(/\t/,$_);
+        $site{$line[1]}=$line[2];
+}
+close(INPUT);
+open INPUT, "<", $ARGV[0] or die "cannot open the BED file: $!";
+
+while(){
+    chomp;
+    my @line=split(/\t/,$_);
+    if($line[2]>($line[1]-$line1)){
+        $site{$line1}=1;
+        $site{$line[1]}=$line[1]-$line1;
+    }
+    $line1=$line[1];
+}
+
+
+foreach (sort {$a<=>$b} keys %site){
+        print OUT "$_\t$site{$_}\n";
+        }
+After some simple modification, we can get the input files of msmc
+
+for file in {01..19}; do cut -f 1 /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_4haplotypes/Chr$file/Chr$file.pos > /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_4haplotypes/Chr$file/Chr$file.chrom; paste /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_4haplotypes/Chr$file/Chr$file.chrom /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_4haplotypes/Chr$file/Chr$file.fastphase.msmc.modify.input /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_4haplotypes/Chr$file/Chr$file.hap > /proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/msmc_4haplotypes/Chr$file/Chr$file.fastphase.msmc.final.input; done
+Notice: I found there were some SNPs occurred twice in Chr12 in the original VCF file, "/proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/SwAsp.trichocarpa.gatk.hap.snp.rm_indel.bed.biallelic.GQ10.rm_miss_1.hwe.recode.vcf.gz", in the analysis of msmc, I used this vcf file and then remove the duplicated SNPs only for Chr12 in the end. However, for the following analysis, the file "/proj/b2011141/nobackup/tremula_vs_tremuloides_paper/bwa_mem_alignment/GATK/HC/tremula/total/snp_filter/SwAsp.trichocarpa.gatk.hap.snp.rm_indel.bed.biallelic.GQ10.rm_miss_1.hwe.chr12_uniq.recode.vcf.gz" should be used
+
+5. Results
+
+I used the following command to run msmc
+
+msmc="/mnt/picea/home/jingwang/msmc_8hap_tremuloides/msmc_linux_64bit"
+Input=
+for file in /mnt/picea/home/jingwang/msmc_8hap_tremuloides/*input
+do
+Input="$Input $file"
+done
+$msmc --fixedRecombination -o tremula.8hap.msmc.output $Input
+
